@@ -1,0 +1,51 @@
+# Python cache
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Git
+.git/
+.gitignore
+
+# Jupyter Notebook
+.ipynb_checkpoints/
+*.ipynb
+
+# Dataset (if large)
+dataset/
+
+# Model files (download separately or mount as volume)
+# Uncomment if models are too large for image
+# model/*.h5
+# model/*.pt
+# model/distilbert_model/
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Logs
+*.log
+
+# Documentation
+README.md
+*.md
+
+# Notebook folder
+Notebook/
+
+# Batch files
+*.bat
