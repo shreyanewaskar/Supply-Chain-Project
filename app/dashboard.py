@@ -278,8 +278,21 @@ def load_yolo_model():
 def load_sentiment_model():
     try:
         from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
-        
+        import gdown
+
         model_path = MODEL_DIR / 'distilbert_model' / 'distilbert_model'
+
+        if not model_path.exists():
+            st.info("Downloading DistilBERT model from Google Drive...")
+            GDRIVE_FOLDER_ID = "1EvLB4eJKVHXRC9HdwEgepv4h7qpkAZyn"
+            model_path.mkdir(parents=True, exist_ok=True)
+            gdown.download_folder(
+                id=GDRIVE_FOLDER_ID,
+                output=str(model_path),
+                quiet=False
+            )
+            st.success("Model downloaded successfully!")
+
         tokenizer = DistilBertTokenizer.from_pretrained(str(model_path))
         model = DistilBertForSequenceClassification.from_pretrained(str(model_path))
         model.eval()
