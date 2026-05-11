@@ -860,7 +860,17 @@ elif page == 'Object Detection':
 
 elif page == 'Sentiment Analysis':
     st.markdown('<p class="main-header">Supplier Sentiment Analysis</p>', unsafe_allow_html=True)
-    
+
+    with st.expander("Debug Info", expanded=True):
+        model_path_check = MODEL_DIR / 'distilbert_model' / 'distilbert_model'
+        zip_path_check = MODEL_DIR / 'distilbert_model.zip'
+        st.write(f"MODEL_DIR: `{MODEL_DIR}`")
+        st.write(f"MODEL_DIR exists: `{MODEL_DIR.exists()}`")
+        st.write(f"model_path exists: `{model_path_check.exists()}`")
+        st.write(f"zip_path exists: `{zip_path_check.exists()}`")
+        if MODEL_DIR.exists():
+            st.write(f"Contents of MODEL_DIR: `{list(MODEL_DIR.iterdir())}`")
+
     tokenizer, sentiment_model, num_classes = load_sentiment_model()
     
     st.subheader("Analyze Supplier/Customer Feedback")
