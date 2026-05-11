@@ -278,20 +278,28 @@ def load_yolo_model():
 def load_sentiment_model():
     try:
         from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
-        import gdown
+        import gdown, zipfile
 
         model_path = MODEL_DIR / 'distilbert_model' / 'distilbert_model'
+        zip_path = MODEL_DIR / 'distilbert_model.zip'
 
         if not model_path.exists():
             st.info("Downloading DistilBERT model from Google Drive...")
-            GDRIVE_FOLDER_ID = "1EvLB4eJKVHXRC9HdwEgepv4h7qpkAZyn"
-            model_path.mkdir(parents=True, exist_ok=True)
-            gdown.download_folder(
-                id=GDRIVE_FOLDER_ID,
-                output=str(model_path),
+            GDRIVE_FILE_ID = "1EvLB4eJKVHXRC9HdwEgepv4h7qpkAZyn"
+            MODEL_DIR.mkdir(parents=True, exist_ok=True)
+            gdown.download(
+                f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}",
+                str(zip_path),
                 quiet=False
             )
-            st.success("Model downloaded successfully!")
+            if zip_path.exists():
+                with zipfile.ZipFile(str(zip_path), 'r') as z:
+                    z.extractall(str(MODEL_DIR))
+                zip_path.unlink()
+                st.success("Model downloaded and extracted successfully!")
+            else:
+                st.error("Download failed. Please check Google Drive link permissions.")
+                return None, None, None
 
         tokenizer = DistilBertTokenizer.from_pretrained(str(model_path))
         model = DistilBertForSequenceClassification.from_pretrained(str(model_path))
@@ -452,172 +460,141 @@ elif page == 'Demand Forecasting':
         st.error("⚠️ No models loaded. Please check model files in the model/ folder.")
         st.info("Expected model files: half_lstm_{shop}_{category}.h5")
     else:
-        tab1, tab2, tab3 = st.tabs(["Predict Demand", "CSV Batch Prediction", "Model Comparison"])
+        tab1, tab2 = st.tabs(["Predict Demand", "CSV Batch Prediction"])
         
         with tab1:
             st.subheader("Enter Historical Sales Data")
-        
-        st.info("""**Instructions:**
-        - Select Shop ID and Item Category
-        - Provide exactly 12 months of historical sales data
-        - Enter values as comma-separated numbers (e.g., 120,135,142,138,145,150,148,155,160,158,165,170)
-        - Values should be in chronological order from oldest to most recent
-        - System will predict next 3 months demand
-        """)
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            shop_id = st.selectbox("Shop ID", [25, 28, 31], index=0)
-            
-            # Categories available per shop
-            if shop_id == 25:
-                categories = ['Cinema_Media', 'Games_Software', 'Music_Audio', 'Other']
-            elif shop_id == 28:
-                categories = ['Cinema_Media', 'Games_Software', 'Music_Audio']
-            else:  # shop_id == 31
-                categories = ['Cinema_Media', 'Games_Software', 'Music_Audio']
-            
-            item_category = st.selectbox("Item Category", categories, index=0)
-        
-        with col2:
-            st.write("**Enter last 12 months sales:**")
-            sales_input = st.text_area(
-                "Sales (comma-separated)", 
-                "120,135,142,138,145,150,148,155,160,158,165,170",
-                height=100,
-                help="Enter exactly 12 monthly sales values separated by commas"
-            )
-        
-        if st.button("Predict Next 3 Months Demand", type="primary"):
-            try:
-                # Parse input
-                sales_data = np.array([float(x.strip()) for x in sales_input.split(',')])
-                
-                if len(sales_data) != 12:
-                    st.error(f"Error: You provided {len(sales_data)} values. Please provide exactly 12 months of sales data.")
+            st.info("""**Instructions:**
+            - Select Shop ID and Item Category
+            - Provide exactly 12 months of historical sales data
+            - Enter values as comma-separated numbers (e.g., 120,135,142,138,145,150,148,155,160,158,165,170)
+            - Values should be in chronological order from oldest to most recent
+            - System will predict next 3 months demand
+            """)
+
+            col1, col2 = st.columns(2)
+            with col1:
+                shop_id = st.selectbox("Shop ID", [25, 28, 31], index=0)
+                if shop_id == 25:
+                    categories = ['Cinema_Media', 'Games_Software', 'Music_Audio', 'Other']
+                elif shop_id == 28:
+                    categories = ['Cinema_Media', 'Games_Software', 'Music_Audio']
                 else:
-                    # Get the appropriate model
-                    model_key = f'{shop_id}_{item_category}'
-                    model = category_models.get(model_key)
-                    
-                    if model:
-                        # Normalize
-                        mean_val = sales_data.mean()
-                        std_val = sales_data.std() if sales_data.std() > 0 else 1
-                        
-                        # Predict next 3 months
-                        predictions = []
-                        current_sequence = sales_data.copy()
-                        
-                        for i in range(3):
-                            normalized = (current_sequence[-12:] - mean_val) / std_val
-                            X = normalized.reshape(1, 12, 1)
-                            
-                            pred_normalized = model.predict(X, verbose=0)[0][0]
-                            prediction = pred_normalized * std_val + mean_val
-                            predictions.append(prediction)
-                            
-                            # Update sequence for next prediction
-                            current_sequence = np.append(current_sequence, prediction)
-                        
-                        st.success(f"### Predicted Demand for Next 3 Months")
-                        st.info(f"**Shop ID:** {shop_id} | **Item Category:** {item_category}")
-                        
-                        # Display predictions
-                        col1, col2, col3 = st.columns(3)
-                        col1.metric("Month 1", f"{predictions[0]:.2f} units")
-                        col2.metric("Month 2", f"{predictions[1]:.2f} units")
-                        col3.metric("Month 3", f"{predictions[2]:.2f} units")
-                        
-                        # Visualization
-                        fig = go.Figure()
-                        
-                        # Historical data
-                        months = list(range(1, len(sales_data) + 1))
-                        fig.add_trace(go.Scatter(
-                            x=months, y=sales_data, 
-                            mode='lines+markers', 
-                            name='Historical Sales', 
-                            line=dict(color='#004E89', width=3),
-                            marker=dict(size=8)
-                        ))
-                        
-                        # Predictions
-                        pred_months = [len(sales_data) + 1, len(sales_data) + 2, len(sales_data) + 3]
-                        fig.add_trace(go.Scatter(
-                            x=pred_months, y=predictions, 
-                            mode='lines+markers', 
-                            name='Predictions', 
-                            line=dict(color='#FF6B35', width=3, dash='dash'),
-                            marker=dict(size=15, symbol='star')
-                        ))
-                        
-                        fig.update_layout(
-                            title=f'3-Month Demand Forecast - Shop {shop_id}, Category {item_category}',
-                            xaxis_title='Month',
-                            yaxis_title='Sales Units',
-                            plot_bgcolor='rgba(255,255,255,0.9)',
-                            paper_bgcolor='rgba(255,255,255,0.5)',
-                            font=dict(color='#004E89'),
-                            xaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)'),
-                            yaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)')
-                        )
-                        st.plotly_chart(fig, use_container_width=True)
-                        
-                        # Detailed Metrics
-                        st.markdown("---")
-                        st.subheader("Detailed Analysis")
-                        col1, col2, col3, col4 = st.columns(4)
-                        col1.metric("Last Month", f"{sales_data[-1]:.0f}")
-                        col2.metric("Avg Historical", f"{sales_data.mean():.0f}")
-                        col3.metric("Avg Predicted", f"{np.mean(predictions):.0f}")
-                        col4.metric("Total 3-Month", f"{sum(predictions):.0f}")
-                        
-                        # Insights
-                        st.markdown("---")
-                        st.subheader("Insights")
-                        
-                        change_pct = ((predictions[0] - sales_data[-1]) / sales_data[-1] * 100)
-                        avg_growth = ((np.mean(predictions) - sales_data.mean()) / sales_data.mean() * 100)
-                        
-                        col1, col2 = st.columns(2)
-                        with col1:
-                            if change_pct > 5:
-                                st.success(f"**Month 1 Outlook:** Strong growth expected ({change_pct:.1f}% increase)")
-                            elif change_pct < -5:
-                                st.warning(f"**Month 1 Outlook:** Decline expected ({change_pct:.1f}% decrease)")
-                            else:
-                                st.info(f"**Month 1 Outlook:** Stable demand ({change_pct:.1f}% change)")
-                        
-                        with col2:
-                            if avg_growth > 5:
-                                st.success(f"**3-Month Trend:** Growing demand ({avg_growth:.1f}% above average)")
-                            elif avg_growth < -5:
-                                st.warning(f"**3-Month Trend:** Declining demand ({avg_growth:.1f}% below average)")
-                            else:
-                                st.info(f"**3-Month Trend:** Stable demand ({avg_growth:.1f}% change)")
-                        
-                        # Prediction table
-                        st.markdown("---")
-                        st.subheader("Prediction Summary")
-                        pred_df = pd.DataFrame({
-                            'Month': ['Month 1', 'Month 2', 'Month 3'],
-                            'Predicted Demand': [f"{p:.2f}" for p in predictions],
-                            'Change from Last Month': [
-                                f"{((predictions[0] - sales_data[-1]) / sales_data[-1] * 100):.1f}%",
-                                f"{((predictions[1] - predictions[0]) / predictions[0] * 100):.1f}%",
-                                f"{((predictions[2] - predictions[1]) / predictions[1] * 100):.1f}%"
-                            ]
-                        })
-                        st.dataframe(pred_df, use_container_width=True)
-                        
+                    categories = ['Cinema_Media', 'Games_Software', 'Music_Audio']
+                item_category = st.selectbox("Item Category", categories, index=0)
+
+            with col2:
+                st.write("**Enter last 12 months sales:**")
+                sales_input = st.text_area(
+                    "Sales (comma-separated)",
+                    "120,135,142,138,145,150,148,155,160,158,165,170",
+                    height=100,
+                    help="Enter exactly 12 monthly sales values separated by commas"
+                )
+
+            if st.button("Predict Next 3 Months Demand", type="primary"):
+                try:
+                    sales_data = np.array([float(x.strip()) for x in sales_input.split(',')])
+                    if len(sales_data) != 12:
+                        st.error(f"Error: You provided {len(sales_data)} values. Please provide exactly 12 months of sales data.")
                     else:
-                        st.error(f"Model not found for Shop {shop_id}, Category {item_category}. Available models: {list(category_models.keys())}")
-                        
-            except ValueError as e:
-                st.error(f"Invalid input format. Please enter numbers separated by commas. Error: {e}")
-            except Exception as e:
-                st.error(f"Error: {e}")
+                        model_key = f'{shop_id}_{item_category}'
+                        model = category_models.get(model_key)
+                        if model:
+                            mean_val = sales_data.mean()
+                            std_val = sales_data.std() if sales_data.std() > 0 else 1
+                            predictions = []
+                            current_sequence = sales_data.copy()
+                            for i in range(3):
+                                normalized = (current_sequence[-12:] - mean_val) / std_val
+                                X = normalized.reshape(1, 12, 1)
+                                pred_normalized = model.predict(X, verbose=0)[0][0]
+                                prediction = pred_normalized * std_val + mean_val
+                                predictions.append(prediction)
+                                current_sequence = np.append(current_sequence, prediction)
+
+                            st.success(f"### Predicted Demand for Next 3 Months")
+                            st.info(f"**Shop ID:** {shop_id} | **Item Category:** {item_category}")
+                            col1, col2, col3 = st.columns(3)
+                            col1.metric("Month 1", f"{predictions[0]:.2f} units")
+                            col2.metric("Month 2", f"{predictions[1]:.2f} units")
+                            col3.metric("Month 3", f"{predictions[2]:.2f} units")
+
+                            month_labels = [f'Month {i}' for i in range(1, 13)]
+                            pred_labels = ['Month 13', 'Month 14', 'Month 15']
+                            all_x = month_labels + pred_labels
+                            all_y = list(sales_data) + predictions
+
+                            fig = go.Figure()
+                            fig.add_trace(go.Scatter(
+                                x=month_labels, y=list(sales_data),
+                                mode='lines+markers', name='Historical Sales',
+                                line=dict(color='#004E89', width=3), marker=dict(size=8)
+                            ))
+                            fig.add_trace(go.Scatter(
+                                x=pred_labels, y=predictions,
+                                mode='lines+markers', name='Predicted Demand',
+                                line=dict(color='#FF6B35', width=3, dash='dash'),
+                                marker=dict(size=12, symbol='star')
+                            ))
+                            fig.update_layout(
+                                title=f'3-Month Demand Forecast - Shop {shop_id}, {item_category}',
+                                xaxis_title='Month', yaxis_title='Sales Units',
+                                plot_bgcolor='rgba(255,255,255,0.9)',
+                                paper_bgcolor='rgba(255,255,255,0.5)',
+                                font=dict(color='#004E89'),
+                                xaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)', tickangle=45),
+                                yaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)'),
+                                legend=dict(x=0.01, y=0.99)
+                            )
+                            st.plotly_chart(fig, use_container_width=True)
+
+                            st.markdown("---")
+                            st.subheader("Detailed Analysis")
+                            col1, col2, col3, col4 = st.columns(4)
+                            col1.metric("Last Month", f"{sales_data[-1]:.0f}")
+                            col2.metric("Avg Historical", f"{sales_data.mean():.0f}")
+                            col3.metric("Avg Predicted", f"{np.mean(predictions):.0f}")
+                            col4.metric("Total 3-Month", f"{sum(predictions):.0f}")
+
+                            st.markdown("---")
+                            st.subheader("Insights")
+                            change_pct = ((predictions[0] - sales_data[-1]) / sales_data[-1] * 100)
+                            avg_growth = ((np.mean(predictions) - sales_data.mean()) / sales_data.mean() * 100)
+                            col1, col2 = st.columns(2)
+                            with col1:
+                                if change_pct > 5:
+                                    st.success(f"**Month 1 Outlook:** Strong growth expected ({change_pct:.1f}% increase)")
+                                elif change_pct < -5:
+                                    st.warning(f"**Month 1 Outlook:** Decline expected ({change_pct:.1f}% decrease)")
+                                else:
+                                    st.info(f"**Month 1 Outlook:** Stable demand ({change_pct:.1f}% change)")
+                            with col2:
+                                if avg_growth > 5:
+                                    st.success(f"**3-Month Trend:** Growing demand ({avg_growth:.1f}% above average)")
+                                elif avg_growth < -5:
+                                    st.warning(f"**3-Month Trend:** Declining demand ({avg_growth:.1f}% below average)")
+                                else:
+                                    st.info(f"**3-Month Trend:** Stable demand ({avg_growth:.1f}% change)")
+
+                            st.markdown("---")
+                            st.subheader("Prediction Summary")
+                            pred_df = pd.DataFrame({
+                                'Month': ['Month 1', 'Month 2', 'Month 3'],
+                                'Predicted Demand': [f"{p:.2f}" for p in predictions],
+                                'Change from Last Month': [
+                                    f"{((predictions[0] - sales_data[-1]) / sales_data[-1] * 100):.1f}%",
+                                    f"{((predictions[1] - predictions[0]) / predictions[0] * 100):.1f}%",
+                                    f"{((predictions[2] - predictions[1]) / predictions[1] * 100):.1f}%"
+                                ]
+                            })
+                            st.dataframe(pred_df, use_container_width=True)
+                        else:
+                            st.error(f"Model not found for Shop {shop_id}, Category {item_category}.")
+                except ValueError as e:
+                    st.error(f"Invalid input format. Please enter numbers separated by commas. Error: {e}")
+                except Exception as e:
+                    st.error(f"Error: {e}")
         
         with tab2:
             st.subheader("CSV Batch Prediction")
@@ -818,37 +795,40 @@ elif page == 'Demand Forecasting':
                 mime="text/csv"
             )
         
-        with tab3:
-            st.subheader("Model Performance Comparison")
-            st.success("**Model automatically selected based on Shop ID and Item Category**")
-
 elif page == 'Object Detection':
     st.markdown('<p class="main-header">Warehouse Object Detection</p>', unsafe_allow_html=True)
-    
+
     yolo_model = load_yolo_model()
-    
+
     st.subheader("Upload Warehouse/Shelf Image")
-    uploaded_file = st.file_uploader("Choose an image...", type=['jpg', 'jpeg', 'png'])
-    
-    col1, col2 = st.columns(2)
-    
-    if uploaded_file and yolo_model:
+    st.info("Upload a warehouse or shelf image to detect and count inventory items automatically.")
+
+    uploaded_file = st.file_uploader(
+        "📁 Choose an image file",
+        type=['jpg', 'jpeg', 'png'],
+        help="Supported formats: JPG, JPEG, PNG"
+    )
+
+    if uploaded_file is not None:
         image = Image.open(uploaded_file)
-        
+        col1, col2 = st.columns(2)
+
         with col1:
-            st.image(image, caption='Uploaded Image', use_container_width=True)
-        
-        if st.button("🔍 Detect Objects"):
+            st.image(image, caption='Uploaded Image', width='stretch')
+
+        if yolo_model is None:
+            st.error("YOLO model not loaded. Please check model files.")
+        elif st.button("🔍 Detect Objects", type="primary"):
             with st.spinner("Detecting objects..."):
                 results = yolo_model(image)
-                
+
                 with col2:
                     result_img = results[0].plot()
-                    st.image(result_img, caption='Detection Results', use_container_width=True)
-                
+                    st.image(result_img, caption='Detection Results', width='stretch')
+
                 st.markdown("---")
                 st.subheader("Detection Summary")
-                
+
                 boxes = results[0].boxes
                 if len(boxes) > 0:
                     detections = []
@@ -856,21 +836,23 @@ elif page == 'Object Detection':
                         cls = int(box.cls[0])
                         conf = float(box.conf[0])
                         detections.append({'Class': yolo_model.names[cls], 'Confidence': f"{conf:.2%}"})
-                    
+
                     df_det = pd.DataFrame(detections)
-                    
+
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Total Objects", len(boxes))
                     col2.metric("Unique Classes", df_det['Class'].nunique())
                     col3.metric("Avg Confidence", f"{boxes.conf.mean():.2%}")
-                    
-                    st.dataframe(df_det, use_container_width=True)
-                    
+
+                    st.dataframe(df_det, width='stretch')
+
                     class_counts = df_det['Class'].value_counts()
                     fig = px.pie(values=class_counts.values, names=class_counts.index, title='Object Distribution')
-                    st.plotly_chart(fig, use_container_width=True)
+                    st.plotly_chart(fig, width='stretch')
                 else:
-                    st.warning("No objects detected")
+                    st.warning("No objects detected in the image.")
+    else:
+        st.info("👆 Please upload an image to get started.")
 
 elif page == 'Sentiment Analysis':
     st.markdown('<p class="main-header">Supplier Sentiment Analysis</p>', unsafe_allow_html=True)
@@ -1016,6 +998,7 @@ elif page == 'Sentiment Analysis':
                                     else:
                                         sentiment_score = probabilities[0][2].item()
                                 else:
+                                    class_names = [f'Class_{i}' for i in range(num_classes)]
                                     st.error(f"Unsupported number of classes: {num_classes}")
                                     sentiment_score = 0.0
                                     sentiment_label = "Unknown"
@@ -1024,42 +1007,11 @@ elif page == 'Sentiment Analysis':
                                 st.metric("Sentiment Score", f"{sentiment_score:.3f}")
                                 recommendation = sentiment_recommendation(sentiment_label, sentiment_score)
                                 st.info(f"Recommendation: {recommendation}")
-                                
-                                st.markdown("---")
-                                st.subheader("Confidence Analysis Graph")
-                                conf_df = pd.DataFrame({
-                                    'Sentiment': class_names[:num_classes],
-                                    'Confidence': [probabilities[0][i].item() for i in range(num_classes)]
-                                })
-                                
-                                color_map = {
-                                    'Negative': '#ff6b6b',
-                                    'Neutral': '#ffd93d', 
-                                    'Positive': '#6bcf7f'
+                                st.session_state.conf_chart_data = {
+                                    'labels': class_names[:num_classes],
+                                    'values': [probabilities[0][i].item() for i in range(num_classes)],
+                                    'score': sentiment_score
                                 }
-                                
-                                fig = px.bar(
-                                    conf_df, 
-                                    x='Sentiment', 
-                                    y='Confidence',
-                                    title='Sentiment Confidence Distribution',
-                                    color='Sentiment',
-                                    color_discrete_map=color_map
-                                )
-                                fig.update_layout(
-                                    plot_bgcolor='rgba(255,255,255,0.9)',
-                                    paper_bgcolor='rgba(255,255,255,0.5)',
-                                    font=dict(color='#004E89'),
-                                    yaxis=dict(range=[0, 1])
-                                )
-                                st.plotly_chart(fig, use_container_width=True)
-                                
-                                st.markdown("---")
-                                st.info(f"""
-                                **Integration with Demand Forecasting:**
-                                This sentiment score ({sentiment_score:.3f}) can be fed into the LSTM demand model 
-                                as an exogenous feature to account for supplier reliability in demand predictions.
-                                """)
                             
                         except Exception as e:
                             st.error(f"Error during analysis: {e}")
@@ -1067,6 +1019,36 @@ elif page == 'Sentiment Analysis':
                     st.warning("Please enter some text to analyze.")
                 else:
                     st.error("Model not loaded. Please check model files.")
+        
+        # Chart rendered OUTSIDE col1/col2 so it gets full width
+        if 'conf_chart_data' in st.session_state:
+            chart_data = st.session_state.conf_chart_data
+            st.markdown("---")
+            st.subheader("Confidence Analysis Graph")
+            color_map = {'Negative': '#ff6b6b', 'Neutral': '#ffd93d', 'Positive': '#6bcf7f'}
+            bar_colors = [color_map.get(s, '#1A659E') for s in chart_data['labels']]
+            fig_conf = go.Figure(go.Bar(
+                x=chart_data['labels'],
+                y=chart_data['values'],
+                marker_color=bar_colors,
+                text=[f"{v:.1%}" for v in chart_data['values']],
+                textposition='outside'
+            ))
+            fig_conf.update_layout(
+                title='Sentiment Confidence Distribution',
+                plot_bgcolor='rgba(255,255,255,0.9)',
+                paper_bgcolor='rgba(255,255,255,0.5)',
+                font=dict(color='#004E89'),
+                yaxis=dict(range=[0, 1.2], title='Confidence'),
+                xaxis=dict(title='Sentiment'),
+                height=400
+            )
+            st.plotly_chart(fig_conf, use_container_width=True)
+            st.info(f"""
+            **Integration with Demand Forecasting:**
+            This sentiment score ({chart_data['score']:.3f}) can be fed into the LSTM demand model
+            as an exogenous feature to account for supplier reliability in demand predictions.
+            """)
         
         with col2:
             st.markdown("**Model Information**")
@@ -1399,38 +1381,31 @@ elif page == 'Shortage Alerts':
                     st.subheader("Stock Projection (90 Days)")
                     
                     days = np.arange(0, 91)
-                    projected_stock = current_stock - (daily_sales * days)
-                    
+                    projected_stock = np.maximum(current_stock - (daily_sales * days), 0)
+                    day_labels = [f'Day {d}' if d % 10 == 0 else '' for d in days]
+
                     fig = go.Figure()
                     fig.add_trace(go.Scatter(
-                        x=days, y=projected_stock, 
-                        mode='lines', 
-                        name='Projected Stock', 
+                        x=list(days), y=list(projected_stock),
+                        mode='lines', name='Projected Stock',
                         line=dict(color='#004E89', width=3),
-                        fill='tozeroy',
-                        fillcolor='rgba(0,78,137,0.2)'
+                        fill='tozeroy', fillcolor='rgba(0,78,137,0.2)'
                     ))
-                    fig.add_hline(y=reorder_point, line_dash="dash", line_color="#FF6B35", 
-                                 annotation_text="Reorder Point", annotation_position="right")
-                    fig.add_hline(y=safety_stock, line_dash="dash", line_color="red", 
-                                 annotation_text="Safety Stock", annotation_position="right")
-                    fig.add_hline(y=0, line_color="darkred", line_width=2,
-                                 annotation_text="Stockout", annotation_position="right")
-                    
-                    # Add vertical lines for month boundaries
+                    fig.add_hline(y=reorder_point, line_dash="dash", line_color="#FF6B35",
+                                 annotation_text="Reorder Point", annotation_position="top right")
+                    fig.add_hline(y=safety_stock, line_dash="dash", line_color="red",
+                                 annotation_text="Safety Stock", annotation_position="top right")
                     fig.add_vline(x=30, line_dash="dot", line_color="#1A659E", opacity=0.5, annotation_text="Month 1")
                     fig.add_vline(x=60, line_dash="dot", line_color="#1A659E", opacity=0.5, annotation_text="Month 2")
                     fig.add_vline(x=90, line_dash="dot", line_color="#1A659E", opacity=0.5, annotation_text="Month 3")
-                    
                     fig.update_layout(
-                        title=f"90-Day Stock Projection - Shop {shop_id_shortage}, Category {item_category_shortage}",
-                        xaxis_title="Days",
-                        yaxis_title="Stock Level (units)",
+                        title=f"90-Day Stock Projection - Shop {shop_id_shortage}, {item_category_shortage}",
+                        xaxis_title="Days", yaxis_title="Stock Level (units)",
                         plot_bgcolor='rgba(255,255,255,0.9)',
                         paper_bgcolor='rgba(255,255,255,0.5)',
                         font=dict(color='#004E89'),
-                        xaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)'),
-                        yaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)')
+                        xaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)', range=[0, 90]),
+                        yaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)', rangemode='nonnegative')
                     )
                     st.plotly_chart(fig, use_container_width=True)
                     
@@ -1694,46 +1669,35 @@ elif page == 'AI-Powered Insights':
                             # Visualization
                             st.markdown("---")
                             st.subheader("Visual Comparison")
-                            
+
+                            month_labels_ai = [f'Month {i}' for i in range(1, 13)]
+                            pred_labels_ai = ['Month 13', 'Month 14', 'Month 15']
+
                             fig = go.Figure()
-                            
-                            # Historical data
-                            months = list(range(1, len(sales_data) + 1))
                             fig.add_trace(go.Scatter(
-                                x=months, y=sales_data,
-                                mode='lines+markers',
-                                name='Historical Sales',
-                                line=dict(color='#004E89', width=3),
-                                marker=dict(size=8)
+                                x=month_labels_ai, y=list(sales_data),
+                                mode='lines+markers', name='Historical Sales',
+                                line=dict(color='#004E89', width=3), marker=dict(size=8)
                             ))
-                            
-                            # Base predictions
-                            pred_months = [len(sales_data) + 1, len(sales_data) + 2, len(sales_data) + 3]
                             fig.add_trace(go.Scatter(
-                                x=pred_months, y=base_predictions,
-                                mode='lines+markers',
-                                name='Base Forecast (LSTM)',
+                                x=pred_labels_ai, y=base_predictions,
+                                mode='lines+markers', name='Base Forecast (LSTM)',
                                 line=dict(color='#1A659E', width=3, dash='dash'),
                                 marker=dict(size=12, symbol='circle')
                             ))
-                            
-                            # Adjusted predictions
                             fig.add_trace(go.Scatter(
-                                x=pred_months, y=adjusted_predictions,
-                                mode='lines+markers',
-                                name='AI-Adjusted Forecast (LSTM + NLP)',
+                                x=pred_labels_ai, y=adjusted_predictions,
+                                mode='lines+markers', name='AI-Adjusted Forecast (LSTM + NLP)',
                                 line=dict(color='#FF6B35', width=3, dash='dot'),
                                 marker=dict(size=15, symbol='star')
                             ))
-                            
                             fig.update_layout(
-                                title=f'AI-Powered Demand Forecast - Shop {shop_id_ai}, Category {item_category_ai}',
-                                xaxis_title='Month',
-                                yaxis_title='Sales Units',
+                                title=f'AI-Powered Demand Forecast - Shop {shop_id_ai}, {item_category_ai}',
+                                xaxis_title='Month', yaxis_title='Sales Units',
                                 plot_bgcolor='rgba(255,255,255,0.9)',
                                 paper_bgcolor='rgba(255,255,255,0.5)',
                                 font=dict(color='#004E89'),
-                                xaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)'),
+                                xaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)', tickangle=45),
                                 yaxis=dict(showgrid=True, gridcolor='rgba(0,78,137,0.1)'),
                                 legend=dict(x=0.01, y=0.99, bgcolor='rgba(255,255,255,0.8)')
                             )
