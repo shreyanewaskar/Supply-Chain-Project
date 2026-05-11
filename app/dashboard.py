@@ -274,50 +274,22 @@ def load_yolo_model():
         st.info("Make sure ultralytics is installed: pip install ultralytics")
         return None
 
+HF_MODEL_ID = "ShreyaNewaskar/distilbert-supply-chain"
+
 @st.cache_resource
 def load_sentiment_model():
     try:
         from transformers import DistilBertTokenizer, DistilBertForSequenceClassification
-        import gdown, zipfile
-
-        model_path = MODEL_DIR / 'distilbert_model' / 'distilbert_model'
-        zip_path = MODEL_DIR / 'distilbert_model.zip'
-
-        if not model_path.exists():
-            GDRIVE_FILE_ID = "1EvLB4eJKVHXRC9HdwEgepv4h7qpkAZyn"
-            MODEL_DIR.mkdir(parents=True, exist_ok=True)
-            status = st.status("Downloading DistilBERT model (~250MB). This only happens once...", expanded=True)
-            with status:
-                st.write("Connecting to Google Drive...")
-                gdown.download(
-                    id=GDRIVE_FILE_ID,
-                    output=str(zip_path),
-                    quiet=False,
-                    fuzzy=True
-                )
-                if not zip_path.exists() or zip_path.stat().st_size < 1000:
-                    status.update(label="Download failed.", state="error")
-                    st.error("Download failed or file is too small. Check Google Drive link permissions (must be 'Anyone with link').")
-                    return None, None, None
-                st.write("Extracting model files...")
-                with zipfile.ZipFile(str(zip_path), 'r') as z:
-                    z.extractall(str(MODEL_DIR))
-                zip_path.unlink()
-                status.update(label="Model ready!", state="complete")
-
-        tokenizer = DistilBertTokenizer.from_pretrained(str(model_path))
-        model = DistilBertForSequenceClassification.from_pretrained(str(model_path))
+        with st.spinner("Loading DistilBERT model..."):
+            tokenizer = DistilBertTokenizer.from_pretrained(HF_MODEL_ID)
+            model = DistilBertForSequenceClassification.from_pretrained(HF_MODEL_ID)
         model.eval()
-
         test_input = tokenizer("test", return_tensors="pt")
         with torch.no_grad():
-            test_output = model(**test_input)
-            num_classes = test_output.logits.shape[1]
-
+            num_classes = model(**test_input).logits.shape[1]
         return tokenizer, model, num_classes
     except Exception as e:
         st.error(f"Error loading sentiment model: {e}")
-        st.info("Make sure transformers and torch are installed: pip install transformers torch")
         return None, None, None
 
 
@@ -860,16 +832,6 @@ elif page == 'Object Detection':
 
 elif page == 'Sentiment Analysis':
     st.markdown('<p class="main-header">Supplier Sentiment Analysis</p>', unsafe_allow_html=True)
-
-    with st.expander("Debug Info", expanded=True):
-        model_path_check = MODEL_DIR / 'distilbert_model' / 'distilbert_model'
-        zip_path_check = MODEL_DIR / 'distilbert_model.zip'
-        st.write(f"MODEL_DIR: `{MODEL_DIR}`")
-        st.write(f"MODEL_DIR exists: `{MODEL_DIR.exists()}`")
-        st.write(f"model_path exists: `{model_path_check.exists()}`")
-        st.write(f"zip_path exists: `{zip_path_check.exists()}`")
-        if MODEL_DIR.exists():
-            st.write(f"Contents of MODEL_DIR: `{list(MODEL_DIR.iterdir())}`")
 
     tokenizer, sentiment_model, num_classes = load_sentiment_model()
     
