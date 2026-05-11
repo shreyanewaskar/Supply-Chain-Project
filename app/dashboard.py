@@ -284,22 +284,26 @@ def load_sentiment_model():
         zip_path = MODEL_DIR / 'distilbert_model.zip'
 
         if not model_path.exists():
-            st.info("Downloading DistilBERT model from Google Drive...")
             GDRIVE_FILE_ID = "1EvLB4eJKVHXRC9HdwEgepv4h7qpkAZyn"
             MODEL_DIR.mkdir(parents=True, exist_ok=True)
-            gdown.download(
-                f"https://drive.google.com/uc?id={GDRIVE_FILE_ID}",
-                str(zip_path),
-                quiet=False
-            )
-            if zip_path.exists():
+            status = st.status("Downloading DistilBERT model (~250MB). This only happens once...", expanded=True)
+            with status:
+                st.write("Connecting to Google Drive...")
+                gdown.download(
+                    id=GDRIVE_FILE_ID,
+                    output=str(zip_path),
+                    quiet=False,
+                    fuzzy=True
+                )
+                if not zip_path.exists() or zip_path.stat().st_size < 1000:
+                    status.update(label="Download failed.", state="error")
+                    st.error("Download failed or file is too small. Check Google Drive link permissions (must be 'Anyone with link').")
+                    return None, None, None
+                st.write("Extracting model files...")
                 with zipfile.ZipFile(str(zip_path), 'r') as z:
                     z.extractall(str(MODEL_DIR))
                 zip_path.unlink()
-                st.success("Model downloaded and extracted successfully!")
-            else:
-                st.error("Download failed. Please check Google Drive link permissions.")
-                return None, None, None
+                status.update(label="Model ready!", state="complete")
 
         tokenizer = DistilBertTokenizer.from_pretrained(str(model_path))
         model = DistilBertForSequenceClassification.from_pretrained(str(model_path))
