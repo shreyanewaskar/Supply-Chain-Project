@@ -164,7 +164,7 @@ if 'page' not in st.session_state:
     st.session_state.page = 'Home'
 
 st.sidebar.title("Navigation")
-page = st.sidebar.radio("Go to", ['Home', 'Demand Forecasting', 'Object Detection', 'Sentiment Analysis', 'Shortage Alerts', 'AI-Powered Insights'])
+page = st.sidebar.radio("Go to", ['Home', 'Demand Forecasting', 'Sentiment Analysis', 'Shortage Alerts', 'AI-Powered Insights'])
 
 @st.cache_resource
 def load_category_models():
@@ -185,7 +185,6 @@ def load_category_models():
                 sequence = X[0, :, 0]
                 key = f"{self.shop_id}_{self.category}"
                 
-                # Different strategies for different models
                 if key == "25_Cinema_Media":
                     return self._exponential_smoothing(sequence, 0.3)
                 elif key == "25_Games_Software":
@@ -234,7 +233,6 @@ def load_category_models():
                 prediction = recent_weight * recent_avg + (1 - recent_weight) * overall_avg
                 return np.array([[max(0, prediction)]])
         
-        # Create different predictors for each combination
         model_files = [
             (25, 'Cinema_Media'), (25, 'Games_Software'), (25, 'Music_Audio'), (25, 'Other'),
             (28, 'Cinema_Media'), (28, 'Games_Software'), (28, 'Music_Audio'),
@@ -253,25 +251,30 @@ def load_category_models():
 def load_yolo_model():
     try:
         from ultralytics import YOLO
-        # Try both paths - file and directory format
-        model_paths = [
-            MODEL_DIR / 'best.pt',
-            MODEL_DIR / 'best'
-        ]
-        
-        for model_path in model_paths:
-            if model_path.exists():
-                try:
-                    model = YOLO(str(model_path))
-                    return model
-                except:
-                    continue
-        
-        st.warning("YOLO model not found. Please extract best.pt from best.pt.zip in the model folder.")
+        import zipfile
+
+        pt_path = MODEL_DIR / 'best.pt'
+        zip_path = MODEL_DIR / 'best.pt.zip'
+
+        # If best.pt is a folder (corrupted), remove it and extract from zip
+        if pt_path.exists() and pt_path.is_dir():
+            import shutil
+            shutil.rmtree(str(pt_path))
+
+        # Extract from zip if .pt file doesn't exist
+        if not pt_path.exists() and zip_path.exists():
+            with zipfile.ZipFile(str(zip_path), 'r') as z:
+                z.extractall(str(MODEL_DIR))
+
+        # Try best.pt first, fallback to yolov8n.pt
+        for model_path in [pt_path, MODEL_DIR / 'yolov8n.pt']:
+            if model_path.exists() and model_path.is_file():
+                return YOLO(str(model_path))
+
+        st.warning("YOLO model not found.")
         return None
     except Exception as e:
         st.error(f"Error loading YOLO: {e}")
-        st.info("Make sure ultralytics is installed: pip install ultralytics")
         return None
 
 HF_MODEL_ID = "ShreyaNewaskar/distilbert-supply-chain"
@@ -790,7 +793,7 @@ elif page == 'Object Detection':
         col1, col2 = st.columns(2)
 
         with col1:
-            st.image(image, caption='Uploaded Image', width='stretch')
+            st.image(image, caption='Uploaded Image')
 
         if yolo_model is None:
             st.error("YOLO model not loaded. Please check model files.")
@@ -800,7 +803,7 @@ elif page == 'Object Detection':
 
                 with col2:
                     result_img = results[0].plot()
-                    st.image(result_img, caption='Detection Results', width='stretch')
+                    st.image(result_img, caption='Detection Results')
 
                 st.markdown("---")
                 st.subheader("Detection Summary")
@@ -820,11 +823,11 @@ elif page == 'Object Detection':
                     col2.metric("Unique Classes", df_det['Class'].nunique())
                     col3.metric("Avg Confidence", f"{boxes.conf.mean():.2%}")
 
-                    st.dataframe(df_det, width='stretch')
+                    st.dataframe(df_det, use_container_width=True)
 
                     class_counts = df_det['Class'].value_counts()
                     fig = px.pie(values=class_counts.values, names=class_counts.index, title='Object Distribution')
-                    st.plotly_chart(fig, width='stretch')
+                    st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("No objects detected in the image.")
     else:
